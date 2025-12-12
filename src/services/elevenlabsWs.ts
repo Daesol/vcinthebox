@@ -27,6 +27,7 @@ export interface ElevenLabsConnection {
   disconnect: () => void;
   sendUserMessage: (text: string) => void;
   setMuted: (muted: boolean) => void;
+  triggerGreeting: () => void;
 }
 
 /**
@@ -42,8 +43,9 @@ export async function connectElevenLabs(
   
   // Track if we've already cleaned up to prevent double-stop
   let isDisconnected = false;
-  // Start muted - push-to-talk mode, user clicks to record
-  let isMuted = true;
+  // Start unmuted - mic always captures, ElevenLabs VAD handles speech detection
+  // User can mute themselves with the button
+  let isMuted = false;
   
   // Set up microphone capture with echo cancellation
   const mic = new MicrophoneCapture({
@@ -75,6 +77,29 @@ export async function connectElevenLabs(
   const setMuted = (muted: boolean) => {
     isMuted = muted;
     console.log('[ElevenLabs] Mic muted:', muted);
+  };
+
+  // Trigger agent to start speaking by sending a small silent audio chunk
+  const triggerGreeting = () => {
+    if (ws.readyState === WebSocket.OPEN && !isDisconnected) {
+      // Create a small silent audio chunk (1 frame of silence at 16kHz)
+      // This triggers the agent to start its greeting
+      const silentChunk = new ArrayBuffer(320); // 10ms of silence at 16kHz mono 16-bit
+      const view = new Int16Array(silentChunk);
+      view.fill(0); // Fill with zeros (silence)
+      
+      try {
+        const base64Silence = arrayBufferToBase64(silentChunk);
+        ws.send(
+          JSON.stringify({
+            user_audio_chunk: base64Silence,
+          })
+        );
+        console.log('[ElevenLabs] Sent trigger to start agent greeting');
+      } catch (e) {
+        console.warn('[ElevenLabs] Error triggering greeting:', e);
+      }
+    }
   };
 
   mic.on('error', (error: Error) => {
@@ -134,6 +159,7 @@ export async function connectElevenLabs(
           disconnect: cleanupOnce,
           sendUserMessage: (text: string) => sendUserMessage(ws, text),
           setMuted,
+          triggerGreeting,
         });
       } catch (error) {
         console.error('[ElevenLabs] Failed to start microphone:', error);

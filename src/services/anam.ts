@@ -33,15 +33,26 @@ export async function initializeAnam(
   });
   console.log('[Anam] Client created');
 
-  // Stream avatar to video element
-  const videoElement = document.getElementById(videoElementId) as HTMLVideoElement;
+  // Wait for video element to be available (important for stage transitions)
+  let videoElement = document.getElementById(videoElementId) as HTMLVideoElement;
+  let retries = 0;
+  while (!videoElement && retries < 10) {
+    console.log(`[Anam] Waiting for video element '${videoElementId}'... (attempt ${retries + 1})`);
+    await new Promise(resolve => setTimeout(resolve, 100));
+    videoElement = document.getElementById(videoElementId) as HTMLVideoElement;
+    retries++;
+  }
+  
   if (!videoElement) {
-    throw new Error(`[Anam] Video element '${videoElementId}' not found`);
+    throw new Error(`[Anam] Video element '${videoElementId}' not found after ${retries} attempts`);
   }
   console.log('[Anam] Found video element, streaming...');
   
   await client.streamToVideoElement(videoElementId);
   console.log('[Anam] Avatar streaming to video element');
+  
+  // Small delay to ensure video stream is ready
+  await new Promise(resolve => setTimeout(resolve, 200));
 
   // Create audio input stream for lip-sync
   // ElevenLabs sends PCM16LE at 16kHz mono
