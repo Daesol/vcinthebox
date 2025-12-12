@@ -45,6 +45,8 @@ export default function LivePage() {
   const hasCleanedUp = useRef(false);
   // Track recording state for use in callbacks (avoids stale closure)
   const isRecordingRef = useRef(false);
+  // Ref to call handleEndStage from timer without dependency issues
+  const handleEndStageRef = useRef<() => void>(() => {});
 
   // Cleanup function - runs on unmount or when connections need to be closed
   const cleanup = useCallback(() => {
@@ -174,6 +176,9 @@ export default function LivePage() {
     router.push('/app/run/result');
   }, [isEnding, runId, currentStageId, transcript, completeStage, router]);
 
+  // Keep ref updated for timer to use
+  handleEndStageRef.current = handleEndStage;
+
   // Initialize connections
   useEffect(() => {
     // Reset cleanup flag on mount so cleanup can run again
@@ -231,15 +236,14 @@ export default function LivePage() {
               console.log('[LIVE] Agent speaking - recording auto-stopped');
             }
             
-            // Forward audio to Anam for lip-sync
+            // Forward audio to Anam for lip-sync AND audio playback
+            // Anam handles both video + audio through the video element
             if (anamRef.current) {
               anamRef.current.sendAudioChunk(base64Audio);
             } else {
-              console.warn('[LIVE] Anam not connected - cannot send audio for lip-sync');
+              // Fallback: play audio directly if Anam not connected
+              audioPlayerRef.current?.playChunk(base64Audio);
             }
-            
-            // Play audio so user can hear the AI voice
-            audioPlayerRef.current?.playChunk(base64Audio);
           },
           
           onUserTranscript: (text) => {
@@ -303,7 +307,7 @@ export default function LivePage() {
     };
   }, [currentStage, agentId, anamSessionToken, addTranscriptTurn, cleanup]);
 
-  // Initialize timer
+  // Initialize timer - only depends on currentStage, not handleEndStage
   useEffect(() => {
     if (!currentStage) return;
 
@@ -312,8 +316,8 @@ export default function LivePage() {
     timerRef.current = setInterval(() => {
       setTimeRemaining((prev) => {
         if (prev <= 1) {
-          // Timer hit 0 - immediately end stage
-          handleEndStage();
+          // Timer hit 0 - end stage via ref to avoid dependency issues
+          handleEndStageRef.current();
           return 0;
         }
         return prev - 1;
@@ -325,7 +329,7 @@ export default function LivePage() {
         clearInterval(timerRef.current);
       }
     };
-  }, [currentStage, handleEndStage]);
+  }, [currentStage]); // Only re-run when stage changes, not when handleEndStage changes
 
   // Redirect if not in LIVE state
   useEffect(() => {
